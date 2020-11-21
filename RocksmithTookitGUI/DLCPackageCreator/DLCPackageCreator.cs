@@ -56,6 +56,7 @@ namespace RocksmithToolkitGUI.DLCPackageCreator
         private string packageComment;
         // prevents multiple tool tip appearance and gives better action
         private ToolTip tt = new ToolTip();
+        private string batchModeOutput = null;
 
         public DLCPackageCreator()
         {
@@ -1721,13 +1722,21 @@ namespace RocksmithToolkitGUI.DLCPackageCreator
 
                 var packageVersion = String.Format("{0}{1}", versionPrefix, PackageVersion);
                 var fileName = StringExtensions.GetValidShortFileName(ArtistSort, SongTitleSort, packageVersion, ConfigRepository.Instance().GetBoolean("creator_useacronyms"));
-                sfd.FileName = fileName.GetValidFileName();
-                sfd.Filter = CurrentRocksmithTitle + " CDLC (*.*)|*.*";
 
-                if (sfd.ShowDialog(this) != DialogResult.OK) // 'this' ensures sfd is topmost
-                    return;
+                if (batchModeOutput != null)
+                {
+                    DestPath = batchModeOutput + "/" + fileName;
+                }
+                else
+                {
+                    sfd.FileName = fileName.GetValidFileName();
+                    sfd.Filter = CurrentRocksmithTitle + " CDLC (*.*)|*.*";
 
-                DestPath = sfd.FileName;
+                    if (sfd.ShowDialog(this) != DialogResult.OK) // 'this' ensures sfd is topmost
+                        return;
+
+                    DestPath = sfd.FileName;
+                }
             }
         }
 
@@ -1981,8 +1990,14 @@ namespace RocksmithToolkitGUI.DLCPackageCreator
                     ConfigRepository.Instance()["creator_ps3pkgnamewarn"] = true.ToString();
             }
 
+            if (batchModeOutput != null)
+            {
+                // MT: run synchronously for batch mode
+                GeneratePackage(null, new DoWorkEventArgs(packageData));
+                // TODO error handling
+            }
             // unit test does not behave well with async background worker
-            if (!GlobalsLib.IsUnitTest)
+            else if (!GlobalsLib.IsUnitTest)
             {
                 if (!bwGenerate.IsBusy && packageData != null)
                 {
@@ -2937,7 +2952,31 @@ namespace RocksmithToolkitGUI.DLCPackageCreator
             txtDlcKey.Clear();
         }
 
+        private void btnTemplateBatch_Click(object sender, EventArgs e)
+        {
 
+            IEnumerable<string> dlcTemplatePaths;
+            using (var fbd = new FolderBrowserDialog())
+            {
+                if (fbd.ShowDialog() != DialogResult.OK)
+                    return;
+                dlcTemplatePaths = Directory.EnumerateFiles(fbd.SelectedPath, "*.dlc.xml", SearchOption.AllDirectories);
+            }
+            using (var fbd = new FolderBrowserDialog())
+            {
+                if (fbd.ShowDialog() != DialogResult.OK)
+                    return;
+                batchModeOutput = fbd.SelectedPath;
+            }
 
+            foreach (string dlcTemplatePath in dlcTemplatePaths)
+            {
+                GlobalsConfig.DefaultProjectFolder = dlcTemplatePath;
+                UnpackedDir = Path.GetDirectoryName(dlcTemplatePath);
+                LoadTemplateFile(dlcTemplatePath);
+                btnPackageGenerate_Click(null, null);
+            }
+            batchModeOutput = null;
+        }
     }
 }
